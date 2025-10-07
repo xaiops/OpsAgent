@@ -1,0 +1,62 @@
+# Git
+.git
+.gitignore
+.github
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info
+.eggs
+.pytest_cache
+.mypy_cache
+.coverage
+htmlcov/
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# Environment & Secrets
+.env
+.env.local
+*.key
+*.pem
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# LangGraph
+.langgraph_api/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Documentation
+*.md
+!README.md
+
+# Tests
+tests/
+
+# Development files
+Makefile
+
+# Logs
+*.log
+logs/

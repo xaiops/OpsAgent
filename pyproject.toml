@@ -1,0 +1,64 @@
+[project]
+name = "ops-agent"
+version = "0.0.1"
+description = "A flexible ops agent with memory and tool capabilities."
+authors = [
+    { name = "William Fu-Hinthorn", email = "13333726+hinthornw@users.noreply.github.com" },
+]
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+dependencies = [
+    "langgraph>=0.6.0,<0.7.0",
+    # Optional (for selecting different models)
+    "langchain-openai>=0.2.1",
+    "langchain-anthropic>=0.2.1",
+    "langchain>=0.3.8",
+    "langchain-core>=0.3.8",
+    "python-dotenv>=1.0.1",
+    "langgraph-sdk>=0.1.32",
+    "pyyaml>=6.0.1",
+    "pydantic>=2.0.0",
+    # HTTP client for REST API tools
+    "httpx>=0.25.0",
+    # MCP (Model Context Protocol) support
+    "langchain-mcp-adapters>=0.1.0",
+    "mcp>=0.1.0",
+]
+
+[project.optional-dependencies]
+dev = ["mypy>=1.11.1", "ruff>=0.6.1", "pytest-asyncio"]
+
+[build-system]
+requires = ["setuptools>=73.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["agents", "routing", "mcp", "shared"]
+[tool.setuptools.package-dir]
+"" = "app"
+
+
+[tool.setuptools.package-data]
+"*" = ["py.typed"]
+
+[tool.ruff]
+lint.select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "I",    # isort
+    "D",    # pydocstyle
+    "D401", # First line should be in imperative mood
+    "T201",
+    "UP",
+]
+lint.ignore = ["UP006", "UP007", "UP035", "D417", "E501"]
+include = ["*.py", "*.pyi", "*.ipynb"]
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D", "UP"]
+"ntbk/*" = ["D", "UP", "T201"]
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.mypy]
+ignore_errors = true
