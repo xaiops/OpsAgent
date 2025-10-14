@@ -28,6 +28,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir \
     "langgraph>=0.2.59" \
     "langchain-openai>=0.2.14" \
+    "langchain-mcp-adapters>=0.1.0" \
     "pyyaml>=6.0.1" \
     "pydantic>=2.0.0" \
     "httpx>=0.25.0" \

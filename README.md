@@ -1,84 +1,92 @@
 # OpsAgent
 
-A production-ready, multi-agent LangGraph system for operations automation and infrastructure management. Built with a scalable routing architecture that supports multiple specialized agents working together through a single entry point.
+A production-ready LangGraph agent for Ansible Automation Platform operations with dynamic MCP (Model Context Protocol) integration. Built for scalability, clean architecture, and enterprise deployment.
 
-## Features
+## 🎯 Overview
 
-🚀 **Multi-Agent Routing Architecture**
-- Single coordinator entry point with intelligent routing
-- Easily extensible to 30+ specialized agents
-- Each agent focuses on specific operational domains
+OpsAgent is a conversational AI agent that connects to Ansible Automation Platform through MCP servers, providing natural language access to 46+ operational tools without hardcoded integrations.
 
-🔧 **Ansible Automation Platform Integration**
-- 13 production-ready tools for AAP operations
-- Inventory management, job execution, and monitoring
-- Event-Driven Ansible (EDA) support
-- Playbook linting and syntax validation
-- Red Hat documentation search
+**Key Features:**
+-  **Pure MCP Integration**: Dynamically loads 46 tools from MCP servers
+-  **Production-Grade**: Clean architecture, no hardcoded tool definitions
+-  **Enterprise Ready**: OpenShift/Kubernetes deployment with proper security
+-  **Scalable Design**: Multi-agent routing architecture for future expansion
+-  **LLM Agnostic**: Works with OpenAI, Anthropic, Llama, or any OpenAI-compatible API
 
-⚙️ **Configuration-Driven Design**
-- YAML-based configuration for all settings
-- Environment variable overrides
-- Support for any LLM provider (OpenAI, Anthropic, LlamaStack, etc.)
-- Hot-reloadable prompts and instructions
+## 🏗️ Architecture
 
-🧠 **Built-in Memory Management**
-- User-scoped conversation memory
-- Semantic search across past interactions
-- Context-aware responses
+### High-Level Flow
 
-## Architecture
+```
+User Query
+    ↓
+LangGraph ReAct Agent (47 tools)
+    ├── 46 tools via MCP Client (dynamic discovery)
+    └── 1 memory tool (agent-side)
+        ↓
+    MCP Client (langchain-mcp-adapters)
+        ↓
+    MCP Server (Ansible AAP)
+        ↓
+    Ansible Automation Platform API
+```
+
+### Component Architecture
 
 ```
 ┌─────────────────────────────────────┐
 │   Routing Coordinator (Entry Point) │
-│   - Routes requests to agents        │
-│   - Manages agent lifecycle          │
+│   Routes to appropriate agent        │
 └──────────────┬──────────────────────┘
                │
-               ├─────────────────────────────────┐
-               │                                 │
-       ┌───────▼─────────┐           ┌──────────▼──────────┐
-       │   ops_agent     │           │  Future Agents      │
-       │   (Active)      │           │  (Playbook Dev,     │
-       │                 │           │   Infrastructure,   │
-       │ 14 Tools:       │           │   Security, etc.)   │
-       │ - Ansible AAP   │           └─────────────────────┘
-       │ - EDA           │
-       │ - Linting       │
-       │ - Docs Search   │
-       │ - Memory        │
+       ┌───────▼─────────┐
+       │   ops_agent     │
+       │   (Active)      │
+       │                 │
+       │ 47 Tools:       │
+       │ - 46 MCP tools  │ ← Dynamically loaded from MCP server
+       │ - 1 Memory tool │ ← Agent-side functionality
        └─────────────────┘
 ```
+
+**Why MCP?**
+- **Dynamic Tool Discovery**: No hardcoded tool definitions
+- **Single Source of Truth**: MCP server defines all Ansible tools
+- **Scalable**: Add new tools without code changes
+- **Maintainable**: Tool updates happen at the MCP server level
 
 ### Directory Structure
 
 ```
 app/
-├── graph.py                    # Main entry point
+├── graph.py                    # Main entry point (creates coordinator)
 ├── routing/
-│   └── coordinator.py          # Multi-agent router
+│   └── coordinator.py          # Routes queries to agents
 ├── agents/
-│   └── ops_agent/              # Operations agent
-│       ├── agent.py            # Agent logic
-│       └── tools/              # Agent-specific tools
-│           ├── ansible_tools.py
-│           └── memory.py
-├── mcp/                        # MCP adapter pattern
-│   ├── client.py
+│   └── ops_agent/              # Ansible operations agent
+│       ├── agent.py            # ReAct agent with MCP tools
+│       └── tools/
+│           ├── __init__.py     # Agent-side tools only
+│           └── memory.py       # Memory management (agent-side)
+├── mcp_integration/            # MCP client infrastructure
+│   ├── client.py               # MultiServerMCPClient wrapper
 │   └── adapters/
+│       └── aap_adapter.py      # Future: AAP-specific MCP adapter
 └── shared/                     # Shared utilities
     ├── config.py               # Configuration management
     ├── state.py                # State schemas
-    └── utils.py
+    └── utils.py                # Helper functions
 ```
 
-## Quick Start
+**Note**: No `ansible_tools.py` - all Ansible tools come from MCP server!
+
+## 🚀 Quick Start
 
 ### Prerequisites
 
 - Python 3.11+
-- Virtual environment recommended
+- Access to an MCP server (or disable MCP for testing)
+- LLM endpoint (OpenAI, Anthropic, LlamaStack, etc.)
 
 ### Installation
 
@@ -96,20 +104,33 @@ pip install -e .
 2. **Configure environment:**
 
 ```bash
-# Copy environment template
+# Copy environment template (optional)
 cp env.example .env
 
-# Edit .env with your settings
-# At minimum, configure your LLM endpoint
+# Edit config.yaml with your settings
 ```
 
-3. **Configure agent:**
+3. **Configure MCP and LLM in `config.yaml`:**
 
-Edit `config.yaml` to customize:
-- LLM provider and model
-- Ansible API endpoint
-- Agent prompts and instructions
-- Memory settings
+```yaml
+# LLM Configuration
+llm:
+  base_url: "https://your-llm-endpoint.com/v1"
+  api_key: "your-api-key"
+  default_model: "llama-4-scout-17b-16e-w4a16"
+  temperature: 0.0  # Zero for deterministic tool calling
+  max_tokens: 1200
+
+# MCP Configuration
+mcp:
+  enabled: true
+  servers:
+    aap_ansible:
+      name: "Red Hat AAP Ansible"
+      url: "http://your-mcp-server.com/mcp"
+      transport: "streamable_http"
+      enabled: true
+```
 
 4. **Run the agent:**
 
@@ -117,11 +138,12 @@ Edit `config.yaml` to customize:
 # Start LangGraph dev server
 langgraph dev
 
-# Access at http://127.0.0.1:2024
-# Studio UI: https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024
+# Access at:
+# - API: http://127.0.0.1:2024
+# - Studio: https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024
 ```
 
-## Configuration
+## 🔧 Configuration
 
 ### Main Configuration (`config.yaml`)
 
@@ -132,10 +154,10 @@ debug: false
 
 # LLM Configuration
 llm:
-  base_url: "https://your-llm-endpoint.com/v1/openai/v1"
-  api_key: "your-api-key"
+  base_url: "https://lss-lss.apps.prod.rhoai.rh-aiservices-bu.com/v1/openai/v1"
+  api_key: "not-needed"
   default_model: "llama-4-scout-17b-16e-w4a16"
-  temperature: 0.1          # Low temp for reliable tool calling
+  temperature: 0.0  # Critical: 0.0 for reliable tool calling
   max_tokens: 1200
 
 # Memory Store
@@ -144,349 +166,401 @@ store:
   embedding_dims: 1536
   search_limit: 10
 
-# Prompts (fully customizable)
+# System Prompt (Production-grade, tool-agnostic)
 prompts:
   system_prompt: |
-    You are an expert operations assistant...
-  
-  agent_instructions: |
-    - Always use tools for Ansible operations
-    - Provide clear, actionable responses
+    You are an Ansible automation assistant with access to tools 
+    for Ansible Automation Platform operations.
+    
+    ## CRITICAL RULES:
+    1. When users ask operational questions, ALWAYS call a tool first
+    2. NEVER respond with "No data" - you have tools to get real data
+    3. Look at available tool descriptions to find the right one
+    4. Format results clearly for the user
+    5. Call tools ONCE per query
+    
+    Examples:
+    - User: "List all inventories" → Call list_inventories
+    - User: "Show job status" → Call job_status
+    
+    USE THE TOOLS!
+
+# MCP (Model Context Protocol) Configuration
+mcp:
+  enabled: true  # Set to false to disable MCP
+  servers:
+    aap_ansible:
+      name: "Red Hat AAP Ansible"
+      url: "http://mcp-aap-ansible-proxy-toolhive-system.apps.virt.na-launch.com/mcp"
+      transport: "streamable_http"
+      timeout: 30
+      enabled: true
 ```
 
-### Environment Overrides (`.env`)
+### Environment Overrides (`.env` or env vars)
 
 ```bash
-# LLM Configuration
+# LLM Configuration (overrides config.yaml)
 LLM_BASE_URL=https://your-endpoint.com/v1
 LLM_API_KEY=your-key
 LLM_DEFAULT_MODEL=gpt-4
-LLM_TEMPERATURE=0.1
+LLM_TEMPERATURE=0.0
 LLM_MAX_TOKENS=1200
-
-# Store Configuration
-EMBEDDING_MODEL=text-embedding-3-small
-EMBEDDING_DIMS=1536
 
 # Agent Configuration
 AGENT_NAME=OpsAgent
-DEBUG=true
+DEBUG=false
 ```
 
 **Priority:** Environment variables > `config.yaml` > defaults
 
-## Ansible Automation Platform
+## 🤖 MCP Integration
 
-### Available Tools
+### How MCP Works
 
-#### Core Operations
-| Tool | Description |
-|------|-------------|
-| `list_ansible_inventories` | List all inventories |
-| `get_ansible_inventory` | Get inventory details |
-| `create_ansible_inventory` | Create new inventory |
-| `run_ansible_job` | Execute job template |
-| `get_ansible_job_status` | Check job status |
-| `get_ansible_job_logs` | Retrieve job logs |
-| `search_ansible_galaxy_collections` | Search Galaxy collections |
+The agent uses [langchain-mcp-adapters](https://github.com/langchain-ai/langchain-mcp-adapters) following the [official LangGraph MCP pattern](https://langchain-ai.github.io/langgraph/how-tos/mcp/).
 
-#### Event-Driven Ansible
-| Tool | Description |
-|------|-------------|
-| `list_eda_activations` | List EDA activations |
-| `get_eda_activation` | Get activation details |
+**At startup:**
 
-#### Linting & Validation
-| Tool | Description |
-|------|-------------|
-| `lint_ansible_playbook` | Lint playbooks for best practices |
-| `validate_ansible_syntax` | Quick syntax validation |
+1. Agent connects to configured MCP servers using `MultiServerMCPClient`
+2. MCP client discovers available tools from the server (46 tools)
+3. Tools are converted to LangChain format automatically
+4. Agent loads tools into ReAct agent
+5. **Result: 47 tools total** (46 from MCP + 1 memory tool)
 
-#### Documentation
-| Tool | Description |
-|------|-------------|
-| `search_redhat_docs` | Search Red Hat docs |
-| `fetch_redhat_doc_content` | Fetch specific doc pages |
-
-### Example Interactions
-
-```
-User: "What inventories are available?"
-Agent: [Calls list_ansible_inventories]
-       
-       The following Ansible inventories are available:
-       
-       1. Demo Inventory (ID: 1)
-          - Organization: Default
-          - Total Hosts: 1
-       
-       2. ocp-virt (ID: 2)
-          - Organization: Default  
-          - Total Hosts: 23
-
-User: "Show me the details of inventory 2"
-Agent: [Calls get_ansible_inventory with ID 2]
-       
-       Inventory: ocp-virt
-       Description: Inventory for VM operations jobs
-       ...
-
-User: "Lint this playbook: [paste YAML]"
-Agent: [Calls lint_ansible_playbook]
-       
-       Found 3 issues:
-       - Line 12: Use fully qualified collection names
-       ...
-```
-
-### Configuration
-
-Update the API endpoint in `app/agents/ops_agent/tools/ansible_tools.py`:
+**Implementation:**
 
 ```python
-def _get_api_base_url() -> str:
-    return "http://your-aap-endpoint.com"
-```
+# app/mcp_integration/client.py
+from langchain_mcp_adapters.client import MultiServerMCPClient
 
-Or set via environment variable:
-
-```bash
-ANSIBLE_API_BASE_URL=http://your-aap-endpoint.com
-```
-
-## Multi-Agent System
-
-### Current Agents
-
-- **ops_agent**: Handles Ansible operations, EDA, linting, and documentation
-
-### Adding New Agents
-
-The architecture is designed for easy agent addition:
-
-1. **Create agent module:**
-
-```python
-# app/agents/playbook_dev/agent.py
-def create_playbook_dev_agent():
-    """Create specialized playbook development agent."""
-    # Define tools, prompts, and logic
-    return compiled_graph
-```
-
-2. **Register in coordinator:**
-
-```python
-# app/routing/coordinator.py
-from agents.playbook_dev import create_playbook_dev_agent
-
-# Add to routing options
-workflow.add_node("playbook_dev", 
-                  create_agent_wrapper("playbook_dev", 
-                                      create_playbook_dev_agent()))
-
-# Update routing logic
-workflow.add_conditional_edges(
-    "router",
-    route_to_agent,
-    {
-        "ops_agent": "ops_agent",
-        "playbook_dev": "playbook_dev",  # New route
+client = MultiServerMCPClient({
+    "aap_ansible": {
+        "url": "http://mcp-server.com/mcp",
+        "transport": "streamable_http",
     }
-)
+})
+
+# Dynamically discover tools
+tools = await client.get_tools()  # Returns 46 LangChain tools
+
+# Agent uses these tools automatically
 ```
 
-3. **Update routing classification:**
+### Available Tools (from MCP Server)
 
-```python
-# app/routing/coordinator.py
-class RouteClassification(BaseModel):
-    agent: Literal["ops_agent", "playbook_dev"] = Field(...)
-```
+**46 tools dynamically loaded from MCP:**
 
-The system supports **30+ agents** without performance degradation. Each agent:
-- Has its own state and tools
-- Can be independently developed and tested
-- Shares common infrastructure (config, state, utils)
+| Category | Tools | Examples |
+|----------|-------|----------|
+| **Inventories** | 13 tools | list_inventories, get_inventory, create_inventory, delete_inventory, list_inventory_sources, create_inventory_source, update_inventory_source, sync_inventory_source, etc. |
+| **Jobs** | 4 tools | run_job, job_status, job_logs, list_job_templates |
+| **Projects** | 6 tools | list_projects, get_project, create_project, update_project, list_project_updates, get_project_update_logs |
+| **Hosts** | 7 tools | list_hosts, get_host_details, get_host_facts, add_host_to_inventory, update_host, delete_host, get_failed_hosts |
+| **Groups** | 6 tools | list_groups, get_group_details, create_group, add_host_to_group, remove_host_from_group, get_host_groups |
+| **Ad-hoc Commands** | 3 tools | run_adhoc_command, get_adhoc_command_status, get_adhoc_command_output |
+| **Galaxy** | 5 tools | search_galaxy_collections, search_galaxy_roles, get_collection_details, get_role_details, suggest_ansible_content |
+| **Other** | 2 tools | list_jobs, list_recent_jobs |
 
-## LLM Provider Support
+**1 agent-side tool:**
+- `upsert_memory` - User preference and context management
 
-### LlamaStack / vLLM (Default)
+### Enable/Disable MCP
 
+**Enable MCP** (recommended for production):
 ```yaml
-llm:
-  base_url: "https://lss.apps.prod.rhoai.rh-aiservices-bu.com/v1/openai/v1"
-  api_key: "not-needed"
-  default_model: "llama-4-scout-17b-16e-w4a16"
-  temperature: 0.1
-  max_tokens: 1200
-```
-
-**Note:** LlamaStack does not support `SystemMessage` with tool calling. The agent automatically prepends system instructions to user messages as a workaround.
-
-### OpenAI
-
-```yaml
-llm:
-  base_url: "https://api.openai.com/v1"
-  api_key: "sk-your-key"
-  default_model: "gpt-4"
-  temperature: 0.1
-  max_tokens: 1200
-```
-
-### Anthropic
-
-```yaml
-llm:
-  base_url: "https://api.anthropic.com/v1"
-  api_key: "your-anthropic-key"
-  default_model: "claude-3-5-sonnet-20240620"
-  temperature: 0.1
-  max_tokens: 1200
-```
-
-## Development
-
-### Run Tests
-
-```bash
-# Unit tests
-make test
-
-# Integration tests (requires running agent)
-make integration-test
-
-# All tests
-make test-all
-```
-
-### Run Linter
-
-```bash
-make lint
-```
-
-### Format Code
-
-```bash
-make format
-```
-
-## MCP (Model Context Protocol) Pattern
-
-The agent includes infrastructure for MCP integration, allowing dynamic tool loading from external servers:
-
-```yaml
+# config.yaml
 mcp:
+  enabled: true
   servers:
     aap_ansible:
-      name: "AAP Ansible MCP"
-      url: "http://mcp-server.com/mcp"
-      transport: "streamable_http"
-      timeout: 30
-      enabled: false  # Currently using direct LangChain tools
+      url: "http://your-mcp-server.com/mcp"
+      enabled: true
 ```
 
-The MCP adapter pattern is ready for when MCP servers become available.
+**Disable MCP** (fallback mode):
+```yaml
+# config.yaml
+mcp:
+  enabled: false
+```
 
-## Production Deployment
+When MCP is disabled, only the memory tool is available (1 tool total).
+
+## 💬 Example Interactions
+
+```
+User: "List all Ansible inventories"
+
+Agent: [Calls list_inventories tool via MCP]
+
+Response:
+The following Ansible inventories are available:
+
+1. Demo Inventory (ID: 1)
+   - Organization: Default
+   - Description: Localhost inventory for VM operations jobs
+   - Total Hosts: 1
+
+2. ocp-virt (ID: 2)
+   - Organization: Default
+   - Description: Inventory for VM operations jobs
+   - Total Hosts: 35
+
+3. stress-vm (ID: 3)
+   - Total Hosts: 1
+
+4. test-host-in-virt (ID: 4)
+   - Organization: SNOW
+   - Total Hosts: 1
+```
+
+```
+User: "Show me recent jobs from the last 24 hours"
+
+Agent: [Calls list_recent_jobs tool via MCP]
+
+Response:
+Here are the recent jobs from the last 24 hours:
+...
+```
+
+```
+User: "Run job template 5 with extra vars"
+
+Agent: [Calls run_job tool via MCP]
+
+Response:
+Job started successfully!
+- Job ID: 123
+- Status: Running
+...
+```
+
+## 🚢 Production Deployment
+
+### Quick Deploy
+
+```bash
+# 1. Build container image
+./build-and-push.sh v1.0.0
+
+# 2. Deploy to OpenShift
+./deploy-to-openshift.sh ops-agent v1.0.0
+```
 
 ### Container Build
 
-The project includes a production-ready `Containerfile` using Red Hat UBI 9 with Python 3.11:
+Build and push to Quay.io:
 
 ```bash
-# Build container image
-podman build -f Containerfile -t quay.io/rbrhssa/ops-agents:latest .
+# Build (includes langchain-mcp-adapters)
+podman build -f Containerfile -t quay.io/rbrhssa/ops-agents:v1.0.0 .
 
 # Push to registry
-podman push quay.io/rbrhssa/ops-agents:latest
+podman push quay.io/rbrhssa/ops-agents:v1.0.0
 
 # Run locally
 podman run -p 2024:2024 \
   -e LLM_BASE_URL=https://your-llm.com/v1 \
   -e LLM_API_KEY=your-key \
-  quay.io/rbrhssa/ops-agents:latest
+  quay.io/rbrhssa/ops-agents:v1.0.0
 ```
+
+**Base Image:** Red Hat UBI 9 with Python 3.11  
+**Dependencies:** Includes `langchain-mcp-adapters` for MCP support
 
 ### OpenShift Deployment
 
-Complete OpenShift manifests are provided in the `deploy/` directory:
+Complete deployment manifests in `deploy/`:
 
 ```bash
-# Create project
+# 1. Create namespace
 oc new-project ops-agent
 
-# Create secrets
+# 2. Create secrets
 oc create secret generic ops-agent-secrets \
   --from-literal=llm-api-key='your-key' \
   --from-literal=llm-base-url='https://your-endpoint.com/v1'
 
-# Deploy application
+# 3. Apply manifests
 oc apply -f deploy/configmap.yaml
 oc apply -f deploy/deployment.yaml
 
-# Get route URL
+# 4. Verify
+oc get pods -n ops-agent
+oc logs -f deployment/ops-agent -n ops-agent
+
+# Look for in logs:
+# " Using MCP tools exclusively"
+# "Total tools available: 47"
+
+# 5. Get route URL
 oc get route ops-agent -o jsonpath='{.spec.host}'
 ```
 
-See [deploy/README.md](deploy/README.md) for complete deployment guide.
+**Deployment includes:**
+- ConfigMap with config.yaml
+- Deployment with 1 replica
+- Service (ClusterIP)
+- Route (HTTPS with edge termination)
+- ServiceAccount
+- Health checks (liveness, readiness, startup)
 
-### LangGraph Cloud
+See [DEPLOYMENT_READY.md](DEPLOYMENT_READY.md) for detailed guide.
 
-Deploy to [LangGraph Cloud](https://langchain-ai.github.io/langgraph/cloud/):
+## 🧪 Testing
+
+### Test MCP Connection
 
 ```bash
-langgraph deploy
+# Test MCP server connectivity
+python test_mcp.py
+
+# Expected output:
+#  Successfully loaded 46 tools from MCP server
+# 🎉 MCP integration test successful!
 ```
 
-### Environment Variables (Production)
+### Test Agent Locally
 
 ```bash
-# Required
-LLM_BASE_URL=https://your-llm.com/v1
-LLM_API_KEY=your-production-key
-LLM_DEFAULT_MODEL=your-model
+# Start dev server
+langgraph dev
 
-# Ansible
-ANSIBLE_API_BASE_URL=https://your-aap.com
+# Test query in Studio:
+"List all inventories"
 
-# Optional
-DEBUG=false
-AGENT_NAME=OpsAgent-Prod
+# Expected:
+# - Agent calls list_inventories tool
+# - Returns formatted inventory list
 ```
 
-## Troubleshooting
+### Verify Tool Loading
+
+```bash
+# Check startup logs
+langgraph dev 2>&1 | grep -E "MCP|tools"
+
+# Expected output:
+# MCP is enabled - loading tools from MCP servers...
+# Successfully loaded 46 tools from MCP servers
+#  Using MCP tools exclusively (not loading hardcoded tools)
+# Added 1 agent-side tool(s)
+# Total tools available: 47
+```
+
+## 🔍 Troubleshooting
 
 ### Agent Not Calling Tools
 
 **Symptom:** Agent responds with text instead of calling tools.
 
-**Solution:**
-1. Check `llm.temperature` in `config.yaml` (should be 0.1 for reliable tool calling)
-2. Ensure prompts clearly instruct tool usage
-3. For LlamaStack: Verify system prompt workaround is enabled
+**Solutions:**
+1.  Check `temperature: 0.0` in config (not 0.1 or higher)
+2.  Verify system prompt has aggressive tool-calling instructions
+3.  Test with GPT-4 to rule out model capability issues
+4.  Check logs for tool binding errors
 
-### Connection Errors
+**Revert to aggressive prompt if needed:**
+See production backup strategy in deployment guide.
 
-**Symptom:** HTTP errors when calling Ansible API.
+### MCP Connection Errors
 
-**Solution:**
-1. Verify `ANSIBLE_API_BASE_URL` is correct
-2. Check network connectivity to AAP endpoint
-3. Review timeout settings in tool definitions
+**Symptom:** "Failed to load MCP tools" in logs.
 
-### Memory Not Persisting
+**Solutions:**
+1.  Verify MCP server URL is accessible
+2.  Check network connectivity (firewall, DNS)
+3.  Confirm MCP server is running and healthy
+4.  Set `mcp.enabled: false` to test without MCP
 
-**Symptom:** Agent doesn't remember past conversations.
+### Missing Tools
 
-**Solution:**
-1. Check store configuration in `config.yaml`
-2. Ensure LangGraph store is properly initialized
-3. Use same `user_id` across threads in API calls
+**Symptom:** Only 1 tool available instead of 47.
 
-## Contributing
+**Solutions:**
+1.  Check `mcp.enabled: true` in config
+2.  Verify MCP server configuration is correct
+3.  Review startup logs for MCP initialization errors
+4.  Test MCP server independently with `test_mcp.py`
+
+## 🏗️ Architecture Details
+
+### Multi-Agent Design
+
+The system uses a **routing coordinator pattern** for scalability:
+
+```python
+# app/routing/coordinator.py
+workflow = StateGraph(RoutingState)
+
+# Add router
+workflow.add_node("router", routing_classifier)
+
+# Add agents
+workflow.add_node("ops_agent", create_agent_wrapper("ops_agent", ops_agent))
+
+# Future: Add more agents
+# workflow.add_node("playbook_dev", create_agent_wrapper("playbook_dev", playbook_agent))
+
+# Route based on query
+workflow.add_conditional_edges("router", route_to_agent, {
+    "ops_agent": "ops_agent",
+    # Future routing options
+})
+```
+
+**Benefits:**
+- Single entry point for all queries
+- Easy to add new specialized agents
+- Each agent has its own tools and state
+- Supports 30+ agents without performance issues
+
+### Adding New Agents
+
+1. Create agent module: `app/agents/my_agent/agent.py`
+2. Register in coordinator: `workflow.add_node("my_agent", ...)`
+3. Update routing logic in `RouteClassification`
+
+**That's it!** The infrastructure handles everything else.
+
+## 📊 Monitoring
+
+### Health Checks
+
+```bash
+# Check if agent is healthy
+curl http://localhost:2024/ok
+
+# Check via OpenShift
+oc get pods -n ops-agent
+oc describe pod <pod-name> -n ops-agent
+```
+
+### Logs
+
+```bash
+# Local development
+langgraph dev
+
+# OpenShift
+oc logs -f deployment/ops-agent -n ops-agent
+
+# Filter for important events
+oc logs -f deployment/ops-agent -n ops-agent | grep -E "MCP|tools|ERROR"
+```
+
+### Key Log Messages
+
+```
+ Successfully loaded 46 tools from MCP servers
+ Using MCP tools exclusively (not loading hardcoded tools)
+Total tools available: 47
+OpsAgent (ReAct) created successfully
+```
+
+## 🤝 Contributing
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
@@ -496,12 +570,19 @@ AGENT_NAME=OpsAgent-Prod
 6. Push to branch (`git push origin feature/amazing-feature`)
 7. Open a Pull Request
 
-## License
+## 📄 License
 
 MIT License - See [LICENSE](LICENSE) file for details.
 
-## Acknowledgments
+## 🙏 Acknowledgments
 
 - Built with [LangGraph](https://github.com/langchain-ai/langgraph)
-- Ansible Automation Platform integration
-- OpenAI-compatible LLM support
+- MCP integration via [langchain-mcp-adapters](https://github.com/langchain-ai/langchain-mcp-adapters)
+- Follows [official LangGraph MCP pattern](https://langchain-ai.github.io/langgraph/how-tos/mcp/)
+- Red Hat Ansible Automation Platform integration
+
+---
+
+**Ready for production deployment!** 🚀
+
+For detailed deployment guide, see [DEPLOYMENT_READY.md](DEPLOYMENT_READY.md).

@@ -20,7 +20,7 @@ spec:
       serviceAccountName: ops-agent
       containers:
       - name: ops-agent
-        image: quay.io/rbrhssa/ops-agents:latest
+        image: quay.io/rbrhssa/ops-agents:v1.1.0
         imagePullPolicy: Always
         ports:
         - containerPort: 2024
@@ -44,7 +44,7 @@ spec:
               name: ops-agent-config
               key: llm-model
         - name: LLM_TEMPERATURE
-          value: "0.1"
+          value: "0.0"
         - name: LLM_MAX_TOKENS
           value: "1200"
         

@@ -12,6 +12,7 @@ Architecture:
 
 import logging
 import sys
+import asyncio
 from pathlib import Path
 
 # Add app directory to Python path for imports
@@ -25,7 +26,8 @@ logger = logging.getLogger(__name__)
 
 # Create and export the graph
 # This is what langgraph.json references
-graph = create_ops_coordinator()
+# Initialize async coordinator using asyncio.run() at module level
+graph = asyncio.run(create_ops_coordinator())
 
 logger.info("OpsAgent graph initialized successfully")
 logger.info("Entry point: Routing coordinator with single ops_agent")

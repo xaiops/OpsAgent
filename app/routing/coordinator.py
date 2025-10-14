@@ -31,7 +31,7 @@ from pydantic import BaseModel, Field
 from langchain_core.messages import SystemMessage, HumanMessage
 from langgraph.graph import StateGraph, START, END
 
-from shared.config import get_llm
+from shared.config import get_llm, get_agent_config
 from shared.state import RoutingState
 from agents.ops_agent import create_ops_agent
 
@@ -159,8 +159,12 @@ def create_agent_wrapper(agent_name: str, agent):
         if not messages:
             return {"messages": [], "current_agent": agent_name}
         
-        # Execute the agent asynchronously
-        result = await agent.ainvoke({"messages": messages})
+        # Don't inject SystemMessage - let create_react_agent handle it internally
+        # Using simple tuple format works best with MCP tools
+        result = await agent.ainvoke(
+            {"messages": messages},
+            config={"recursion_limit": 50}
+        )
         
         return {
             "messages": result["messages"],
@@ -170,7 +174,7 @@ def create_agent_wrapper(agent_name: str, agent):
     return agent_execution
 
 
-def create_ops_coordinator():
+async def create_ops_coordinator():
     """
     Create the Ops Coordinator - single entry point for all agents.
     
@@ -183,8 +187,8 @@ def create_ops_coordinator():
     
     logger.info("Creating Ops Coordinator with routing")
     
-    # Initialize agents
-    ops_agent = create_ops_agent()
+    # Initialize agents - properly await async agent creation
+    ops_agent = await create_ops_agent()
     
     # Build routing workflow
     workflow = StateGraph(RoutingState)

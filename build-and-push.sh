@@ -22,7 +22,7 @@ if [ "$TAG" != "latest" ]; then
     podman push ${IMAGE_NAME}:latest
 fi
 
-echo "✅ Build and push complete!"
+echo " Build and push complete!"
 echo "Image: ${IMAGE_NAME}:${TAG}"
 
 # Display image info

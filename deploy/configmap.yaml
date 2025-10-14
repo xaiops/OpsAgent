@@ -23,7 +23,7 @@ data:
       base_url: "https://lss-lss.apps.prod.rhoai.rh-aiservices-bu.com/v1/openai/v1"
       api_key: "not-needed"
       default_model: "llama-4-scout-17b-16e-w4a16"
-      temperature: 0.1
+      temperature: 0.0
       max_tokens: 1200
     
     # Memory Store
@@ -32,63 +32,25 @@ data:
       embedding_dims: 1536
       search_limit: 10
     
-    # Prompts
+    # Prompts (Minimal - works best with create_react_agent and MCP)
     prompts:
       system_prompt: |
-        You are an expert operations assistant specializing in Ansible Automation Platform.
-        
-        You have access to tools for:
-        - Ansible inventory management (list, get, create)
-        - Job execution and monitoring (run, status, logs)
-        - Event-Driven Ansible (EDA) operations
-        - Playbook linting and validation
-        - Red Hat documentation search
-        
-        CRITICAL RULES FOR TOOL USAGE:
-        1. ALWAYS call tools for Ansible operations - NEVER make up or assume data
-        2. When user asks about inventories/jobs/etc, IMMEDIATELY call the corresponding tool
-        3. Tool calls are REQUIRED - text responses without tool calls are WRONG
-        4. After receiving tool results, provide clear, formatted summaries
-        
-        CORRECT Examples:
-        - User: "list inventories" → YOU: [Call list_ansible_inventories tool]
-        - User: "show inventory 2" → YOU: [Call get_ansible_inventory with id=2]
-        - User: "lint my playbook" → YOU: [Call lint_ansible_playbook with playbook content]
-        
-        WRONG Examples:
-        - User: "list inventories" → YOU: "I don't have access to inventories" ❌
-        - User: "show inventory 2" → YOU: "Please provide more details" ❌
-        
-        Remember: You have powerful tools. Use them confidently and immediately!
+        You are an AI assistant with access to Ansible Automation Platform tools.
+        Use the available tools to answer user questions about inventories, jobs, hosts, and projects.
       
       agent_instructions: |
-        ANSIBLE AUTOMATION PLATFORM CAPABILITIES:
-        
-        1. Inventory Management:
-           - list_ansible_inventories: Show all inventories with counts
-           - get_ansible_inventory: Detailed info for specific inventory
-           - create_ansible_inventory: Create new inventory
-        
-        2. Job Operations:
-           - run_ansible_job: Execute job template
-           - get_ansible_job_status: Check if job is running/completed/failed
-           - get_ansible_job_logs: Retrieve full job output
-        
-        3. Event-Driven Ansible:
-           - list_eda_activations: Show all EDA activations
-           - get_eda_activation: Details of specific activation
-        
-        4. Quality & Validation:
-           - lint_ansible_playbook: Best practices check
-           - validate_ansible_syntax: Quick syntax validation
-        
-        5. Documentation:
-           - search_redhat_docs: Search Red Hat docs
-           - fetch_redhat_doc_content: Get specific doc page
-        
-        WORKFLOW:
-        1. User asks question → Identify which tool(s) to use
-        2. Call tool(s) with appropriate parameters
-        3. Receive tool results (JSON/text)
-        4. Format results in clear, readable way
-        5. Provide actionable insights or next steps
+        You have 47 tools available from the MCP server. When users ask questions, identify the right tool and use it.
+        Always call tools for operational queries - never respond with generic text when real data is available.
+    
+    # MCP (Model Context Protocol) Servers
+    mcp:
+      enabled: true
+      servers:
+        aap_ansible:
+          name: "Red Hat AAP Ansible"
+          url: "http://mcp-aap-ansible-proxy-toolhive-system.apps.virt.na-launch.com/mcp"
+          transport: "streamable_http"
+          timeout: 30
+          retry_attempts: 3
+          enabled: true
+          description: "Red Hat Ansible Automation Platform - provides ansible, eda, ansible-lint, and documentation tools"

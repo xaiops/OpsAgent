@@ -7,31 +7,106 @@ This agent handles Ansible Automation Platform operations including:
 - Playbook validation and linting
 - Red Hat documentation search
 - Memory/context management
+
+Uses ReAct agent pattern with automatic error handling and retry logic.
+Supports dynamic tool loading from MCP servers when enabled.
 """
 
 import logging
-from typing import Literal
+import asyncio
 
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
-from langgraph.graph import StateGraph, MessagesState, START, END
+from langgraph.prebuilt import create_react_agent
+from langgraph.checkpoint.memory import MemorySaver
+from langchain_core.messages import SystemMessage
 
-from shared.config import get_llm
-from shared.state import OpsAgentState
+from shared.config import get_llm, get_agent_config
 from agents.ops_agent.tools import ALL_TOOLS
-from shared.config import get_agent_config
+from mcp_integration.client import get_mcp_manager
 
 logger = logging.getLogger(__name__)
 
 
-def create_ops_agent():
+async def _load_tools_async():
     """
-    Create the Ops Agent with native OpenAI-style tool calling.
+    Load tools dynamically from MCP servers.
     
-    IMPORTANT: Uses workaround for LlamaStack SystemMessage incompatibility.
-    Instructions are prepended to user messages instead of using SystemMessage.
+    Follows the official LangGraph MCP pattern:
+    https://langchain-ai.github.io/langgraph/how-tos/mcp/
+    
+    Architecture:
+    - If MCP enabled & working: 46 MCP tools + 1 memory tool (agent-side)
+    - If MCP disabled/failed: 1 memory tool only
+    
+    Note: Previously hardcoded Ansible tools were archived to archive/tools/
+          They provided duplicate functionality with MCP and have been removed.
     
     Returns:
-        Compiled LangGraph StateGraph ready for execution
+        List of LangChain tools (MCP tools + agent-side tools)
+    """
+    config = get_agent_config()
+    tools = []
+    mcp_loaded = False
+    
+    # Load MCP tools if enabled
+    if config.mcp.enabled:
+        logger.info("MCP is enabled - loading tools from MCP servers...")
+        try:
+            mcp_manager = get_mcp_manager()
+            
+            # Convert MCPServerConfig objects to dict format for initialization
+            server_configs = {}
+            for server_name, server_config in config.mcp.servers.items():
+                server_configs[server_name] = {
+                    "name": server_config.name,
+                    "url": server_config.url,
+                    "transport": server_config.transport,
+                    "timeout": server_config.timeout,
+                    "enabled": server_config.enabled,
+                }
+            
+            await mcp_manager.initialize(server_configs)
+            mcp_tools = await mcp_manager.get_tools()
+            
+            if mcp_tools:
+                tools.extend(mcp_tools)
+                mcp_loaded = True
+                logger.info(f"Loaded {len(mcp_tools)} tools from MCP servers")
+                logger.info(" Using MCP tools exclusively (not loading hardcoded tools)")
+            else:
+                logger.warning("No tools loaded from MCP servers")
+                
+        except Exception as e:
+            logger.error(f"Failed to load MCP tools: {e}", exc_info=True)
+            logger.warning("Falling back to hardcoded tools")
+    else:
+        logger.info("MCP is disabled - using hardcoded tools only")
+    
+    # Always include agent-side tools (memory, etc.)
+    # These are NOT provided by MCP and should always be available
+    tools.extend(ALL_TOOLS)
+    logger.info(f"Added {len(ALL_TOOLS)} agent-side tool(s)")
+    
+    logger.info(f"Total tools available: {len(tools)}")
+    
+    return tools
+
+
+async def create_ops_agent():
+    """
+    Create the Ops Agent using ReAct pattern with create_react_agent.
+    
+    Benefits over manual graph building:
+    - Automatic tool calling and execution loop
+    - Built-in error handling and retry logic
+    - The agent can see tool errors and adjust its strategy
+    - Less boilerplate code
+    - Standard ReAct (Reasoning + Acting) pattern
+    
+    Dynamically loads tools from MCP servers when enabled, following the
+    official LangGraph pattern for MCP integration.
+    
+    Returns:
+        Compiled ReAct agent ready for execution
     """
     
     # Get centralized LLM with tool calling support
@@ -40,123 +115,28 @@ def create_ops_agent():
     # Get configuration
     config = get_agent_config()
     
-    # Bind tools to LLM for native function calling
-    llm_with_tools = llm.bind_tools(ALL_TOOLS)
-    
     # Get system prompt from config
     system_prompt = config.prompts.system_prompt
     
-    logger.info(f"Creating OpsAgent with {len(ALL_TOOLS)} tools")
-    logger.info(f"Tool names: {[getattr(t, 'name', t.__class__.__name__) for t in ALL_TOOLS]}")
+    # Load tools (MCP + hardcoded) - properly await async function
+    logger.info("Loading tools for OpsAgent...")
+    tools = await _load_tools_async()
     
-    # Define the function that calls the model
-    def call_model(state: OpsAgentState):
-        messages = state["messages"]
-        
-        # CRITICAL FIX: LlamaStack breaks tool calling with SystemMessage!
-        # Instead, prepend instructions to the FIRST user message
-        if messages and not any(isinstance(m, SystemMessage) for m in messages):
-            first_human_idx = next((i for i, m in enumerate(messages) if isinstance(m, HumanMessage)), None)
-            if first_human_idx is not None:
-                original_content = messages[first_human_idx].content
-                # Extract text from content blocks if needed
-                if isinstance(original_content, list):
-                    text_content = next((block['text'] for block in original_content if block.get('type') == 'text'), '')
-                else:
-                    text_content = original_content
-                
-                # Prepend instructions to user message
-                enhanced_content = f"{system_prompt}\n\nUser request: {text_content}"
-                messages = messages[:first_human_idx] + [HumanMessage(content=enhanced_content)] + messages[first_human_idx+1:]
-                logger.debug(f"Enhanced first user message with instructions")
-        
-        response = llm_with_tools.invoke(messages)
-        
-        # Log tool calls for debugging
-        if hasattr(response, 'tool_calls') and response.tool_calls:
-            logger.info(f"Tool calls: {len(response.tool_calls)} - {[tc.get('name', 'unknown') for tc in response.tool_calls]}")
-        
-        return {"messages": [response]}
+    logger.info(f"Creating OpsAgent (ReAct) with {len(tools)} tools")
+    logger.info(f"Tool names: {[getattr(t, 'name', t.__class__.__name__) for t in tools]}")
     
-    # Define async tool execution node
-    async def call_tools(state: OpsAgentState):
-        """Execute tools asynchronously."""
-        messages = state["messages"]
-        last_message = messages[-1]
-        
-        # Get tool calls from the last message
-        tool_calls = last_message.tool_calls if hasattr(last_message, "tool_calls") else []
-        
-        # Build a mapping of tool names to tool objects
-        tools_by_name = {tool.name if hasattr(tool, 'name') else tool.__name__: tool for tool in ALL_TOOLS}
-        
-        # Execute each tool call
-        tool_messages = []
-        for tool_call in tool_calls:
-            tool_name = tool_call["name"]
-            tool_args = tool_call["args"]
-            tool_call_id = tool_call["id"]
-            
-            logger.info(f"Executing tool: {tool_name} with args: {tool_args}")
-            
-            try:
-                tool = tools_by_name.get(tool_name)
-                if tool is None:
-                    result = f"Error: Tool {tool_name} not found"
-                else:
-                    # Call the tool (handles both sync and async)
-                    if hasattr(tool, 'ainvoke'):
-                        result = await tool.ainvoke(tool_args)
-                    elif hasattr(tool, 'coroutine') and tool.coroutine:
-                        result = await tool.coroutine(**tool_args)
-                    else:
-                        result = tool.invoke(tool_args)
-                    
-                    logger.info(f"Tool {tool_name} returned: {str(result)[:200]}")
-                
-                # Create tool message
-                tool_messages.append(
-                    ToolMessage(
-                        content=str(result),
-                        tool_call_id=tool_call_id,
-                        name=tool_name
-                    )
-                )
-            except Exception as e:
-                logger.error(f"Error executing tool {tool_name}: {e}")
-                tool_messages.append(
-                    ToolMessage(
-                        content=f"Error: {str(e)}",
-                        tool_call_id=tool_call_id,
-                        name=tool_name
-                    )
-                )
-        
-        return {"messages": tool_messages}
+    # Create ReAct agent with built-in tool execution
+    # This automatically creates:
+    # - Agent node (calls LLM with tools)
+    # - Tools node (executes tools)
+    # - Conditional edges (agent -> tools -> agent loop)
+    # - Error handling (agent sees tool errors and can retry)
+    agent = create_react_agent(
+        model=llm,
+        tools=tools,
+        checkpointer=MemorySaver(),  # Enable conversation memory
+    )
     
-    # Define conditional edge logic
-    def should_continue(state: OpsAgentState) -> Literal["tools", END]:
-        messages = state["messages"]
-        last_message = messages[-1]
-        
-        # If the LLM makes a tool call, route to tools node
-        if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-            return "tools"
-        
-        # Otherwise, end
-        return END
+    logger.info("OpsAgent (ReAct) created successfully")
     
-    # Build the graph
-    workflow = StateGraph(OpsAgentState)
-    
-    # Add nodes
-    workflow.add_node("agent", call_model)
-    workflow.add_node("tools", call_tools)  # Custom async tool executor
-    
-    # Add edges
-    workflow.add_edge(START, "agent")
-    workflow.add_conditional_edges("agent", should_continue)
-    workflow.add_edge("tools", "agent")  # After tools, go back to agent
-    
-    # Compile
-    return workflow.compile()
+    return agent

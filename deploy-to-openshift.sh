@@ -1,14 +1,14 @@
-#!/bin/bash
+ #!/bin/bash
 # Deploy OpsAgent to OpenShift
 
 set -e
 
 # Configuration
 NAMESPACE="${1:-ops-agent}"
-IMAGE_TAG="${2:-latest}"
+IMAGE_TAG="${2:-v1.1.0}"  # Default to working version
 
 echo "🚀 Deploying OpsAgent to OpenShift namespace: ${NAMESPACE}"
-echo "Using image: quay.io/rbrhssa/ops-agents:${IMAGE_TAG}"
+echo "📦 Using image: quay.io/rbrhssa/ops-agents:${IMAGE_TAG}"
 
 # Check if oc is installed
 if ! command -v oc &> /dev/null; then
@@ -27,7 +27,7 @@ if ! oc get project ${NAMESPACE} &> /dev/null; then
     echo "📦 Creating namespace: ${NAMESPACE}"
     oc new-project ${NAMESPACE}
 else
-    echo "✅ Using existing namespace: ${NAMESPACE}"
+    echo " Using existing namespace: ${NAMESPACE}"
     oc project ${NAMESPACE}
 fi
 
@@ -49,7 +49,7 @@ if ! oc get secret ops-agent-secrets -n ${NAMESPACE} &> /dev/null; then
           --from-literal=llm-api-key='not-needed' \
           --from-literal=llm-base-url='https://lss-lss.apps.prod.rhoai.rh-aiservices-bu.com/v1/openai/v1' \
           -n ${NAMESPACE}
-        echo "✅ Placeholder secret created. Update it with actual credentials!"
+        echo " Placeholder secret created. Update it with actual credentials!"
     else
         exit 1
     fi
@@ -61,9 +61,9 @@ oc apply -f deploy/configmap.yaml -n ${NAMESPACE}
 
 # Apply Deployment
 echo "🚢 Applying Deployment..."
-if [ "$IMAGE_TAG" != "latest" ]; then
-    # Update image tag in deployment
-    sed "s|quay.io/rbrhssa/ops-agents:latest|quay.io/rbrhssa/ops-agents:${IMAGE_TAG}|g" deploy/deployment.yaml | oc apply -f - -n ${NAMESPACE}
+if [ "$IMAGE_TAG" != "v1.1.0" ]; then
+    # Update image tag in deployment (default is v1.1.0)
+    sed "s|quay.io/rbrhssa/ops-agents:v1.1.0|quay.io/rbrhssa/ops-agents:${IMAGE_TAG}|g" deploy/deployment.yaml | oc apply -f - -n ${NAMESPACE}
 else
     oc apply -f deploy/deployment.yaml -n ${NAMESPACE}
 fi
@@ -77,6 +77,18 @@ echo ""
 echo "📊 Deployment Status:"
 oc get pods -n ${NAMESPACE} -l app=ops-agent
 
+# Verify MCP tools loaded
+echo ""
+echo "🔍 Verifying MCP tools loading..."
+sleep 5
+TOOLS_COUNT=$(oc logs -l app=ops-agent -n ${NAMESPACE} --tail=50 | grep -o "Total tools available: [0-9]*" | tail -1 || echo "")
+if [[ "$TOOLS_COUNT" =~ "47" ]]; then
+    echo "✅ MCP Integration Working: $TOOLS_COUNT (46 MCP + 1 memory)"
+else
+    echo "⚠️  Tools status: $TOOLS_COUNT (expected: 47)"
+    echo "   Check logs: oc logs -l app=ops-agent -n ${NAMESPACE} | grep -E 'MCP|tools'"
+fi
+
 # Get route URL
 echo ""
 if oc get route ops-agent -n ${NAMESPACE} &> /dev/null; then
@@ -85,13 +97,22 @@ if oc get route ops-agent -n ${NAMESPACE} &> /dev/null; then
     echo ""
     echo "🔗 Access LangGraph Studio:"
     echo "   https://smith.langchain.com/studio/?baseUrl=https://${ROUTE_URL}"
+    echo ""
+    echo "🧪 Test the agent:"
+    echo "   curl -k -X POST \"https://${ROUTE_URL}/runs/stream\" \\"
+    echo "     -H \"Content-Type: application/json\" \\"
+    echo "     -d '{\"assistant_id\": \"agent\", \"input\": {\"messages\": [{\"role\": \"human\", \"content\": \"List all Ansible inventories\"}]}, \"stream_mode\": \"values\"}'"
 else
     echo "⚠️  Route not found. Check deployment."
 fi
 
 echo ""
 echo "📝 Useful commands:"
-echo "  View logs:    oc logs -f deployment/ops-agent -n ${NAMESPACE}"
-echo "  Get pods:     oc get pods -n ${NAMESPACE}"
-echo "  Get route:    oc get route ops-agent -n ${NAMESPACE}"
-echo "  Delete all:   oc delete all -l app=ops-agent -n ${NAMESPACE}"
+echo "  View logs:        oc logs -f deployment/ops-agent -n ${NAMESPACE}"
+echo "  Check MCP tools:  oc logs -l app=ops-agent -n ${NAMESPACE} | grep -E 'MCP|tools'"
+echo "  Get pods:         oc get pods -n ${NAMESPACE}"
+echo "  Get route:        oc get route ops-agent -n ${NAMESPACE}"
+echo "  Restart:          oc rollout restart deployment/ops-agent -n ${NAMESPACE}"
+echo "  Delete all:       oc delete all -l app=ops-agent -n ${NAMESPACE}"
+echo ""
+echo "✅ Deployment complete!"
