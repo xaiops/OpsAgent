@@ -3,9 +3,29 @@
 This module provides infrastructure for connecting to and managing
 Model Context Protocol (MCP) servers using langchain-mcp-adapters.
 
-Follows the official LangGraph pattern:
-https://langchain-ai.github.io/langgraph/how-tos/mcp/
-https://github.com/langchain-ai/langchain-mcp-adapters
+=== WHAT IS MCP? ===
+Model Context Protocol (MCP) is an open protocol that standardizes how
+applications provide context to LLMs. Instead of hardcoding tools, MCP
+servers expose tools dynamically that LLMs can discover and use.
+
+=== HOW IT WORKS ===
+1. Agent calls MCPClientManager.initialize(server_configs)
+2. MCPClientManager creates MultiServerMCPClient (from langchain-mcp-adapters)
+3. MultiServerMCPClient connects to MCP server via HTTP (streamable_http transport)
+4. MCP server returns list of available tools in MCP protocol format
+5. langchain-mcp-adapters converts MCP tools → LangChain BaseTool format
+6. Agent passes these tools to create_react_agent()
+7. LLM can now call these tools as if they were local functions
+8. When LLM invokes a tool, the call goes: LLM → LangChain → MCP Client → MCP Server
+
+=== WHY ASYNC? ===
+MCP uses HTTP for communication. All HTTP calls are async to avoid blocking
+the agent while waiting for tool discovery or tool execution responses.
+
+Official docs:
+- https://langchain-ai.github.io/langgraph/how-tos/mcp/
+- https://github.com/langchain-ai/langchain-mcp-adapters
+- https://modelcontextprotocol.io/
 """
 
 import logging
@@ -33,6 +53,17 @@ class MCPClientManager:
     async def initialize(self, server_configs: Dict[str, Any]) -> None:
         """
         Initialize connections to MCP servers using MultiServerMCPClient.
+        
+        This method:
+        1. Filters enabled servers from config
+        2. Converts config format to MultiServerMCPClient connection format
+        3. Creates MultiServerMCPClient with all enabled servers
+        4. Calls get_tools() to discover available tools from all servers
+        5. Caches tools for use by the agent
+        
+        Transport types:
+        - "streamable_http": HTTP transport for remote MCP servers (most common)
+        - "stdio": Standard input/output for local MCP servers
         
         Args:
             server_configs: Dictionary of server name -> MCPServerConfig
@@ -142,18 +173,38 @@ class MCPClientManager:
         self._initialized = False
 
 
-# Singleton instance
+# === SINGLETON PATTERN ===
+# We use a singleton to ensure only ONE MCP client manager exists across the entire app.
+# This prevents:
+# 1. Multiple connections to the same MCP servers (wasteful)
+# 2. Tool cache inconsistencies (different instances with different cached tools)
+# 3. Race conditions during initialization
+#
+# Usage:
+#   manager = get_mcp_manager()  # Always returns the same instance
+#   await manager.initialize(...)  # Only needs to be called once
+#   tools = await manager.get_tools()  # Uses cached tools
 _mcp_manager: Optional[MCPClientManager] = None
 
 
 def get_mcp_manager() -> MCPClientManager:
     """
-    Get the global MCP client manager instance.
+    Get the global singleton MCP client manager instance.
     
-    Note: Call initialize() after getting the manager to connect to servers.
+    This function implements the singleton pattern - it always returns the same
+    MCPClientManager instance throughout the application lifecycle. This ensures
+    we maintain a single connection pool to MCP servers and consistent tool caching.
+    
+    Note: The returned manager is NOT initialized. You must call initialize() 
+          with server configs before calling get_tools().
     
     Returns:
-        MCPClientManager instance (not yet initialized)
+        MCPClientManager: The global singleton instance (uninitialized on first call)
+        
+    Example:
+        >>> manager = get_mcp_manager()
+        >>> await manager.initialize({"server1": {...}})
+        >>> tools = await manager.get_tools()
     """
     global _mcp_manager
     
