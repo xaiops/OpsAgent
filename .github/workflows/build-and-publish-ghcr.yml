@@ -93,7 +93,7 @@ jobs:
 
       - name: Output image details
         run: |
-          echo "✅ Successfully built and pushed images:"
+          echo " Successfully built and pushed images:"
           echo "${{ steps.meta.outputs.tags }}" | tr ',' '\n' | while read tag; do
             echo "  📦 ${tag}"
           done

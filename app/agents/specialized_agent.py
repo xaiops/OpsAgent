@@ -83,7 +83,7 @@ async def create_specialized_agent(server_name: str, prompt_key: str):
         checkpointer=MemorySaver(),
     )
     
-    logger.info(f" Specialized agent '{prompt_key}' created successfully")
+    logger.info(f"✓ Specialized agent '{prompt_key}' created successfully")
     
     # Store prompt key as metadata for the wrapper to use
     agent._prompt_key = prompt_key

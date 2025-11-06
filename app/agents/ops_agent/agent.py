@@ -193,7 +193,7 @@ async def create_ops_agent():
     # - tools: List of LangChain BaseTool objects (from MCP + agent-side)
     # - checkpointer: MemorySaver enables conversation memory across turns
     #
-    # Note: We don't pass state_modifier or system prompt here.
+    # Note: We don't pass system prompt here.
     # With create_react_agent, minimal prompts work best when using tuple format.
     # The system prompt is injected at the coordinator level (see routing/coordinator.py)
     agent = create_react_agent(
@@ -202,7 +202,7 @@ async def create_ops_agent():
         checkpointer=MemorySaver(),
     )
     
-    logger.info(" OpsAgent (ReAct) created successfully")
+    logger.info("✓ OpsAgent (ReAct) created successfully")
     logger.info(f"   Agent can now use {len(tools)} tools via MCP + local execution")
     
     return agent

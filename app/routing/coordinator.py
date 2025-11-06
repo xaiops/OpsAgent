@@ -116,9 +116,9 @@ def create_router_node():
 - Examples: "OpenShift projects", "List pods", "Show namespaces"
 
 **terraform_agent**: Terraform Cloud operations  
-- Use for: Terraform workspaces, runs, Terraform projects, variables, modules
-- Keywords: "Terraform", "TFC", "workspace", "infrastructure as code", "IaC"
-- Examples: "Terraform workspaces", "List runs", "Terraform projects"
+- Use for: Terraform workspaces, runs, Terraform projects, variables, modules, VM deployments via Terraform
+- Keywords: "Terraform", "TFC", "workspace", "infrastructure as code", "IaC", "deploy VM using Terraform"
+- Examples: "Terraform workspaces", "List runs", "Deploy RHEL VM using Terraform"
 
 **ops_agent**: General/Ambiguous queries (FALLBACK only)
 - Use when: NO specific platform mentioned, or very general questions
@@ -131,11 +131,17 @@ def create_router_node():
 4. "Terraform projects" → terraform_agent
 5. If user says platform name, route to that agent
 6. ops_agent is FALLBACK only - use specialized agents whenever possible
+7. **MAINTAIN CONTEXT**: If the previous agent was terraform_agent working on a deployment workflow,
+   and the user provides credentials/info (like OCP API, tokens), STAY with terraform_agent.
+   The agent is collecting information to configure Terraform, NOT directly interacting with that platform.
+8. "Deploy VM using Terraform" → terraform_agent (even if OpenShift/AWS/Azure is the target platform)
 
 **DECISION PROCESS:**
-1. Look for platform keywords (Ansible/OpenShift/Terraform)
-2. If found → route to that platform's agent
-3. If not found → ops_agent"""),
+1. Check conversation history: Is the previous agent in middle of a workflow?
+2. If YES and user is providing requested information → STAY with same agent
+3. If NO, look for platform keywords (Ansible/OpenShift/Terraform)
+4. If found → route to that platform's agent
+5. If not found → ops_agent"""),
             HumanMessage(content=f"Recent conversation:\n{conversation_context}\n\nCurrent user message: {content}")
         ]
         
