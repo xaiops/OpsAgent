@@ -8,7 +8,7 @@ debug: false
 # LLM endpoint configuration - Google Gemini API
 llm:
   base_url: "https://generativelanguage.googleapis.com/v1beta"
-  api_key: "AIzaSyAT5jrIz00qd3fOdCPhZexArN73thOmbhg"
+  api_key: "${GOOGLE_API_KEY}"  # Set via environment variable or replace with your API key
   default_model: "gemini-2.5-flash"
   temperature: 0.1  # Low temperature CRITICAL for tool calling!
   max_tokens: 1200
