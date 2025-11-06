@@ -1,6 +1,6 @@
 # Production-grade Containerfile for OpsAgent
-# Using Red Hat Universal Base Image 9 with Python 3.11
-FROM registry.redhat.io/ubi9/python-311:1-77
+# Using Python 3.11 slim image
+FROM python:3.11-slim
 
 # Production environment variables
 ENV APP_HOME=/opt/app-root/src/ops-agent \
@@ -10,10 +10,10 @@ ENV APP_HOME=/opt/app-root/src/ops-agent \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Create application user (OpenShift compatible - random UID, GID 0)
-USER root
+# Create application directory and user
 RUN mkdir -p ${APP_HOME} && \
-    chgrp -R 0 ${APP_HOME} && \
+    useradd -u 1001 -g 0 -d ${APP_HOME} appuser && \
+    chown -R 1001:0 ${APP_HOME} && \
     chmod -R g=u ${APP_HOME}
 
 # Set working directory
@@ -42,12 +42,8 @@ COPY --chown=1001:0 langgraph.json ./langgraph.json
 
 # Create directories for runtime data with proper permissions
 RUN mkdir -p ./data ./logs && \
-    chgrp -R 0 ./data ./logs && \
+    chown -R 1001:0 ./data ./logs && \
     chmod -R g=u ./data ./logs
-
-# Set proper permissions for OpenShift SCC compatibility
-RUN chgrp -R 0 /opt/app-root && \
-    chmod -R g=u /opt/app-root
 
 # Switch to non-root user
 USER 1001
