@@ -37,7 +37,6 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 # Copy application code
 COPY --chown=1001:0 app/ ./app/
-COPY --chown=1001:0 static/ ./static/
 COPY --chown=1001:0 config.yaml ./config-template.yaml
 COPY --chown=1001:0 langgraph.json ./langgraph.json
 

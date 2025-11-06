@@ -34,14 +34,15 @@ from langgraph.graph import StateGraph, START, END
 from shared.config import get_llm, get_agent_config
 from shared.state import RoutingState
 from agents.ops_agent import create_ops_agent
+from agents.specialized_agent import create_specialized_agent
 
 logger = logging.getLogger(__name__)
 
 
 class RouteClassification(BaseModel):
     """Schema for structured output routing classification."""
-    agent: Literal["ops_agent"] = Field(
-        description="The specialist agent best suited to handle this request. Currently only 'ops_agent' is available."
+    agent: Literal["ansible_agent", "openshift_agent", "terraform_agent", "ops_agent"] = Field(
+        description="The specialist agent best suited to handle this request based on the platform mentioned."
     )
     reasoning: str = Field(
         description="Brief explanation of why this agent was chosen"
@@ -100,27 +101,41 @@ def create_router_node():
         
         # LLM classification
         classification_prompt = [
-            SystemMessage(content="""You are an intelligent Ansible automation coordinator.
+            SystemMessage(content="""You are an intelligent routing coordinator for multi-platform DevOps operations.
 
-**ROUTING GUIDELINES:**
+**ROUTING GUIDELINES - Choose based on PLATFORM keywords:**
 
-**ops_agent**: General Ansible Automation Platform operations
-- Use for: Inventory management, job execution, EDA, playbook validation, documentation search, memory
-- Keywords: "list inventories", "run job", "show activations", "search docs", "remember that"
-- This is currently the ONLY available agent - route everything here
+**ansible_agent**: Ansible Automation Platform operations
+- Use for: Job templates, jobs, Ansible projects, workflows, inventories, EDA
+- Keywords: "Ansible", "job template", "playbook", "automation", "workflow", "EDA"
+- Examples: "What job templates?", "Run Ansible job", "List job templates"
 
-**Future agents** (not yet available):
-- playbook_dev: Playbook development and code generation
-- infrastructure: Infrastructure provisioning
-- security: Security baseline and compliance
-- etc.
+**openshift_agent**: OpenShift/Kubernetes operations
+- Use for: OpenShift projects, namespaces, pods, K8s resources, deployments
+- Keywords: "OpenShift", "Kubernetes", "K8s", "pod", "namespace", "container", "deployment"
+- Examples: "OpenShift projects", "List pods", "Show namespaces"
 
-**REASONING APPROACH:**
-1. Identify the main intent of the user's request
-2. Route to the appropriate agent (currently only ops_agent)
-3. Provide brief reasoning
+**terraform_agent**: Terraform Cloud operations  
+- Use for: Terraform workspaces, runs, Terraform projects, variables, modules
+- Keywords: "Terraform", "TFC", "workspace", "infrastructure as code", "IaC"
+- Examples: "Terraform workspaces", "List runs", "Terraform projects"
 
-**REMEMBER**: Currently only ops_agent is available, so route everything there."""),
+**ops_agent**: General/Ambiguous queries (FALLBACK only)
+- Use when: NO specific platform mentioned, or very general questions
+- Examples: "What can you do?", "Help me"
+
+**CRITICAL RULES:**
+1. ALWAYS prefer a specialized agent if platform is mentioned
+2. "OpenShift projects" → openshift_agent (NOT ansible_agent!)
+3. "Ansible projects" → ansible_agent
+4. "Terraform projects" → terraform_agent
+5. If user says platform name, route to that agent
+6. ops_agent is FALLBACK only - use specialized agents whenever possible
+
+**DECISION PROCESS:**
+1. Look for platform keywords (Ansible/OpenShift/Terraform)
+2. If found → route to that platform's agent
+3. If not found → ops_agent"""),
             HumanMessage(content=f"Recent conversation:\n{conversation_context}\n\nCurrent user message: {content}")
         ]
         
@@ -135,7 +150,7 @@ def create_router_node():
     return router
 
 
-def route_to_agent(state: RoutingState) -> Literal["ops_agent"]:
+def route_to_agent(state: RoutingState) -> Literal["ansible_agent", "openshift_agent", "terraform_agent", "ops_agent"]:
     """Conditional edge function to route to appropriate agent."""
     return state["route_decision"]
 
@@ -144,9 +159,11 @@ def create_agent_wrapper(agent_name: str, agent):
     """
     Create agent execution wrapper node.
     
+    For specialized agents, injects system prompts from config.
+    
     Args:
         agent_name: Name of the agent
-        agent: Compiled agent graph
+        agent: Compiled agent graph (may have _prompt_key attribute)
         
     Returns:
         Async function that executes the agent
@@ -154,13 +171,21 @@ def create_agent_wrapper(agent_name: str, agent):
     
     async def agent_execution(state: RoutingState):
         """Execute agent and track current agent."""
+        from langchain_core.messages import SystemMessage
         
         messages = state["messages"]
         if not messages:
             return {"messages": [], "current_agent": agent_name}
         
-        # Don't inject SystemMessage - let create_react_agent handle it internally
-        # Using simple tuple format works best with MCP tools
+        # For specialized agents, prepend system prompt from config
+        if hasattr(agent, '_prompt_key'):
+            config = get_agent_config()
+            prompt = getattr(config.agent_prompts, agent._prompt_key, "")
+            if prompt:
+                # Prepend system message if first message is not already a system message
+                if not isinstance(messages[0], SystemMessage):
+                    messages = [SystemMessage(content=prompt)] + list(messages)
+        
         result = await agent.ainvoke(
             {"messages": messages},
             config={"recursion_limit": 50}
@@ -176,19 +201,33 @@ def create_agent_wrapper(agent_name: str, agent):
 
 async def create_ops_coordinator():
     """
-    Create the Ops Coordinator - single entry point for all agents.
+    Create the Ops Coordinator - multi-agent routing system.
     
-    This is the main graph that routes requests to specialist agents.
-    Currently routes to ops_agent only, but structured for easy expansion.
+    This creates a routing graph that intelligently distributes requests to 
+    specialized agents based on platform:
+    - ansible_agent: Ansible Automation Platform operations
+    - openshift_agent: OpenShift/Kubernetes operations  
+    - terraform_agent: Terraform Cloud operations
+    - ops_agent: General/fallback operations
+    
+    All agents are created dynamically from config without hardcoded tool names.
     
     Returns:
         Compiled LangGraph workflow
     """
     
-    logger.info("Creating Ops Coordinator with routing")
+    logger.info("🚀 Creating Multi-Agent Ops Coordinator")
     
-    # Initialize agents - properly await async agent creation
+    # Initialize specialized agents (config-driven, no hardcoding!)
+    logger.info("Creating specialized agents...")
+    ansible_agent = await create_specialized_agent("aap_ansible", "ansible_agent")
+    openshift_agent = await create_specialized_agent("openshift", "openshift_agent")
+    terraform_agent = await create_specialized_agent("terraform", "terraform_agent")
+    
+    # Fallback general agent
     ops_agent = await create_ops_agent()
+    
+    logger.info(" All agents initialized")
     
     # Build routing workflow
     workflow = StateGraph(RoutingState)
@@ -197,29 +236,35 @@ async def create_ops_coordinator():
     routing_classifier = create_router_node()
     workflow.add_node("router", routing_classifier)
     
-    # Add agent nodes
+    # Add specialized agent nodes
+    workflow.add_node("ansible_agent", create_agent_wrapper("ansible_agent", ansible_agent))
+    workflow.add_node("openshift_agent", create_agent_wrapper("openshift_agent", openshift_agent))
+    workflow.add_node("terraform_agent", create_agent_wrapper("terraform_agent", terraform_agent))
     workflow.add_node("ops_agent", create_agent_wrapper("ops_agent", ops_agent))
     
-    # Future agents can be added here:
-    # workflow.add_node("playbook_dev", create_agent_wrapper("playbook_dev", playbook_agent))
-    # workflow.add_node("infrastructure", create_agent_wrapper("infrastructure", infra_agent))
-    
-    # Routing: START → router → agents
+    # Routing: START → router → specialized agents
     workflow.add_edge(START, "router")
     workflow.add_conditional_edges(
         "router",
         route_to_agent,
         {
+            "ansible_agent": "ansible_agent",
+            "openshift_agent": "openshift_agent",
+            "terraform_agent": "terraform_agent",
             "ops_agent": "ops_agent",
-            # Future routing options:
-            # "playbook_dev": "playbook_dev",
-            # "infrastructure": "infrastructure",
         }
     )
     
     # All agents go to END
+    workflow.add_edge("ansible_agent", END)
+    workflow.add_edge("openshift_agent", END)
+    workflow.add_edge("terraform_agent", END)
     workflow.add_edge("ops_agent", END)
     
-    logger.info("Ops Coordinator created successfully")
+    logger.info(" Multi-Agent Ops Coordinator created successfully")
+    logger.info("   - ansible_agent: Ansible Automation Platform")
+    logger.info("   - openshift_agent: OpenShift/Kubernetes")
+    logger.info("   - terraform_agent: Terraform Cloud")
+    logger.info("   - ops_agent: General/fallback")
     
     return workflow.compile()

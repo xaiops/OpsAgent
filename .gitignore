@@ -32,6 +32,9 @@ ENV/
 .env
 .env.local
 
+# Configuration with secrets (keep .example file)
+config.yaml
+
 # OpenShift Secrets (keep .example files)
 deploy/secrets.yaml
 

@@ -43,11 +43,13 @@ class MCPClientManager:
     1. Connect to configured MCP servers
     2. Dynamically discover available tools
     3. Return LangChain-compatible tools for agent use
+    4. Track which tools came from which server for multi-agent routing
     """
     
     def __init__(self):
         self._client: Optional[MultiServerMCPClient] = None
         self._tools_cache: Optional[List[Any]] = None
+        self._tools_by_server: Dict[str, List[Any]] = {}  # NEW: Track tools by server
         self._initialized = False
         
     async def initialize(self, server_configs: Dict[str, Any]) -> None:
@@ -114,6 +116,35 @@ class MCPClientManager:
             logger.info(f"Successfully loaded {len(self._tools_cache)} tools from MCP servers")
             logger.info(f"Available MCP tools: {[tool.name for tool in self._tools_cache]}")
             
+            # Group tools by server based on tool name prefixes and patterns
+            # This is a heuristic approach since MultiServerMCPClient combines all tools
+            for tool in self._tools_cache:
+                tool_name = tool.name if hasattr(tool, 'name') else str(tool)
+                
+                # Route tools to servers based on naming patterns
+                if tool_name.startswith('controller.') or tool_name.startswith('eda.'):
+                    server_name = 'aap_ansible'
+                elif tool_name in ['events_list', 'namespaces_list', 'projects_list'] or \
+                     tool_name.startswith('pods_') or tool_name.startswith('resources_'):
+                    server_name = 'openshift'
+                elif tool_name.startswith('list_') or tool_name.startswith('get_') or \
+                     tool_name.startswith('create_') or tool_name.startswith('update_') or \
+                     tool_name.startswith('delete_') or tool_name.startswith('search_') or \
+                     tool_name.startswith('attach_') or tool_name.startswith('detach_') or \
+                     tool_name.startswith('read_workspace'):
+                    server_name = 'terraform'
+                else:
+                    # Default to first enabled server if can't determine
+                    server_name = list(connections.keys())[0] if connections else 'unknown'
+                
+                if server_name not in self._tools_by_server:
+                    self._tools_by_server[server_name] = []
+                self._tools_by_server[server_name].append(tool)
+            
+            # Log tool distribution
+            for server_name, tools in self._tools_by_server.items():
+                logger.info(f"Server '{server_name}': {len(tools)} tools")
+            
             self._initialized = True
             
         except Exception as e:
@@ -126,16 +157,24 @@ class MCPClientManager:
         Get tools from MCP servers.
         
         Args:
-            server_name: Specific server name (not used in current implementation,
-                        MultiServerMCPClient returns all tools)
+            server_name: Optional specific server name. If provided, returns only tools
+                        from that server. If None, returns all tools from all servers.
             
         Returns:
-            List of LangChain-compatible tools from all MCP servers
+            List of LangChain-compatible tools from MCP server(s)
         """
         if not self._initialized:
             logger.warning("MCPClientManager not initialized, returning empty tools list")
             return []
         
+        # If specific server requested, return tools from that server only
+        if server_name is not None:
+            tools = self._tools_by_server.get(server_name, [])
+            if not tools:
+                logger.warning(f"No tools found for server '{server_name}'")
+            return tools
+        
+        # Otherwise return all tools
         if self._tools_cache is None:
             logger.warning("No tools loaded from MCP servers")
             return []

@@ -78,6 +78,7 @@ async def _load_tools_async():
                     "transport": server_config.transport,  # "streamable_http" or "stdio"
                     "timeout": server_config.timeout,
                     "enabled": server_config.enabled,
+                    "headers": server_config.headers,  # Include authentication headers
                 }
             
             # Connect to MCP servers and discover tools
@@ -90,13 +91,13 @@ async def _load_tools_async():
             if mcp_tools:
                 tools.extend(mcp_tools)
                 mcp_loaded = True
-                logger.info(f"✅ Loaded {len(mcp_tools)} tools from MCP servers")
+                logger.info(f" Loaded {len(mcp_tools)} tools from MCP servers")
                 logger.info("   Using MCP tools exclusively (not loading hardcoded tools)")
             else:
                 logger.warning("⚠️  No tools loaded from MCP servers")
                 
         except Exception as e:
-            logger.error(f"❌ Failed to load MCP tools: {e}", exc_info=True)
+            logger.error(f" Failed to load MCP tools: {e}", exc_info=True)
             logger.warning("   Note: Agent will continue with agent-side tools only")
     else:
         logger.info("MCP is disabled in config - skipping MCP tool loading")
@@ -201,7 +202,7 @@ async def create_ops_agent():
         checkpointer=MemorySaver(),
     )
     
-    logger.info("✅ OpsAgent (ReAct) created successfully")
+    logger.info(" OpsAgent (ReAct) created successfully")
     logger.info(f"   Agent can now use {len(tools)} tools via MCP + local execution")
     
     return agent

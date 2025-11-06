@@ -80,6 +80,25 @@ System Time: {time}""",
     )
 
 
+class AgentPromptsConfig(BaseModel):
+    """Multi-agent prompts configuration."""
+    
+    model_config = ConfigDict(protected_namespaces=())
+    
+    ansible_agent: str = Field(
+        default="You are an Ansible Automation Platform expert.",
+        description="Prompt for Ansible-specialized agent"
+    )
+    openshift_agent: str = Field(
+        default="You are an OpenShift/Kubernetes expert.",
+        description="Prompt for OpenShift-specialized agent"
+    )
+    terraform_agent: str = Field(
+        default="You are a Terraform Cloud expert.",
+        description="Prompt for Terraform-specialized agent"
+    )
+
+
 class MCPServerConfig(BaseModel):
     """Configuration for a single MCP server."""
     
@@ -110,6 +129,10 @@ class MCPServerConfig(BaseModel):
     description: str = Field(
         default="",
         description="Description of what this server provides"
+    )
+    headers: dict[str, str] = Field(
+        default_factory=dict,
+        description="HTTP headers for authentication (e.g., Authorization: Bearer token)"
     )
 
 
@@ -152,6 +175,10 @@ class AgentConfig(BaseModel):
     prompts: PromptsConfig = Field(
         default_factory=PromptsConfig,
         description="Prompts and instructions"
+    )
+    agent_prompts: AgentPromptsConfig = Field(
+        default_factory=AgentPromptsConfig,
+        description="Multi-agent specialized prompts"
     )
     mcp: MCPConfig = Field(
         default_factory=MCPConfig,
@@ -276,6 +303,7 @@ __all__ = [
     "LLMConfig",
     "StoreConfig",
     "PromptsConfig",
+    "AgentPromptsConfig",
     "MCPConfig",
     "MCPServerConfig",
     "get_agent_config",

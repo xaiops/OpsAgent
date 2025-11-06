@@ -12,13 +12,13 @@ echo "📦 Using image: quay.io/rbrhssa/ops-agents:${IMAGE_TAG}"
 
 # Check if oc is installed
 if ! command -v oc &> /dev/null; then
-    echo "❌ Error: OpenShift CLI (oc) not found. Please install it first."
+    echo " Error: OpenShift CLI (oc) not found. Please install it first."
     exit 1
 fi
 
 # Check if logged in
 if ! oc whoami &> /dev/null; then
-    echo "❌ Error: Not logged in to OpenShift. Please run 'oc login' first."
+    echo " Error: Not logged in to OpenShift. Please run 'oc login' first."
     exit 1
 fi
 
@@ -83,7 +83,7 @@ echo "🔍 Verifying MCP tools loading..."
 sleep 5
 TOOLS_COUNT=$(oc logs -l app=ops-agent -n ${NAMESPACE} --tail=50 | grep -o "Total tools available: [0-9]*" | tail -1 || echo "")
 if [[ "$TOOLS_COUNT" =~ "47" ]]; then
-    echo "✅ MCP Integration Working: $TOOLS_COUNT (46 MCP + 1 memory)"
+    echo " MCP Integration Working: $TOOLS_COUNT (46 MCP + 1 memory)"
 else
     echo "⚠️  Tools status: $TOOLS_COUNT (expected: 47)"
     echo "   Check logs: oc logs -l app=ops-agent -n ${NAMESPACE} | grep -E 'MCP|tools'"
@@ -93,7 +93,7 @@ fi
 echo ""
 if oc get route ops-agent -n ${NAMESPACE} &> /dev/null; then
     ROUTE_URL=$(oc get route ops-agent -n ${NAMESPACE} -o jsonpath='{.spec.host}')
-    echo "✅ OpsAgent is available at: https://${ROUTE_URL}"
+    echo " OpsAgent is available at: https://${ROUTE_URL}"
     echo ""
     echo "🔗 Access LangGraph Studio:"
     echo "   https://smith.langchain.com/studio/?baseUrl=https://${ROUTE_URL}"
@@ -115,4 +115,4 @@ echo "  Get route:        oc get route ops-agent -n ${NAMESPACE}"
 echo "  Restart:          oc rollout restart deployment/ops-agent -n ${NAMESPACE}"
 echo "  Delete all:       oc delete all -l app=ops-agent -n ${NAMESPACE}"
 echo ""
-echo "✅ Deployment complete!"
+echo " Deployment complete!"
