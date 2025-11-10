@@ -19,7 +19,7 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/opsagent  # Lowercase required by container registries
+  IMAGE_NAME: ${{ github.repository }}  # Full repository path
 
 jobs:
   build-and-push:
@@ -39,7 +39,9 @@ jobs:
         id: meta
         run: |
           # Generate tags: latest, git SHA, and version if available
-          IMAGE_BASE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          # Convert to lowercase for container registry compatibility
+          IMAGE_NAME_LOWER=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE_BASE="${{ env.REGISTRY }}/${IMAGE_NAME_LOWER}"
           TAGS="${IMAGE_BASE}:latest,${IMAGE_BASE}:${{ github.sha }}"
           
           # If this is a version tag (v1.2.3), add semantic version tags
@@ -51,6 +53,7 @@ jobs:
           
           echo "tags=${TAGS}" >> $GITHUB_OUTPUT
           echo "image_base=${IMAGE_BASE}" >> $GITHUB_OUTPUT
+          echo "package_name=$(basename ${IMAGE_NAME_LOWER})" >> $GITHUB_OUTPUT
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -91,9 +94,35 @@ jobs:
             podman push "${tag}"
           done
 
+      - name: Make package public
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Wait a few seconds for package to be fully registered
+          sleep 5
+          
+          # Set package visibility to public
+          # Note: This requires the package to exist first (which it does after push)
+          echo "Setting package visibility to public..."
+          
+          gh api \
+            --method PATCH \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            /orgs/${{ github.repository_owner }}/packages/container/${{ steps.meta.outputs.package_name }}/versions \
+            -f visibility='public' || \
+          gh api \
+            --method PATCH \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            /users/${{ github.repository_owner }}/packages/container/${{ steps.meta.outputs.package_name }} \
+            -f visibility='public' || \
+          echo "⚠️  Could not set package visibility automatically. Please set it manually at:"
+          echo "   https://github.com/${{ github.repository_owner }}?tab=packages"
+
       - name: Output image details
         run: |
-          echo " Successfully built and pushed images:"
+          echo "✅ Successfully built and pushed images:"
           echo "${{ steps.meta.outputs.tags }}" | tr ',' '\n' | while read tag; do
             echo "  📦 ${tag}"
           done
@@ -103,7 +132,7 @@ jobs:
           echo "  podman pull ${{ steps.meta.outputs.image_base }}:latest"
           echo ""
           echo "🔗 View on GHCR:"
-          echo "  https://github.com/${{ github.repository }}/pkgs/container/$(basename ${{ github.repository }})"
+          echo "  https://github.com/${{ github.repository }}/pkgs/container/${{ steps.meta.outputs.package_name }}"
           
           echo ""
           echo "📝 Deploy to OpenShift:"
